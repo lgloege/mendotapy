@@ -125,7 +125,7 @@ def _change_dates_in_df(df=None):
         close_day_month = df['CLOSED'][ind]
         year = int(df['WINTER'][ind][0:4])
 
-        try:
+        if isinstance(open_day_month, str):
             open_doy = int(_datetime.datetime.
                            strptime(f"{open_day_month}", '%d %b').strftime('%j'))
             # this is the lake opening before January of the next year
@@ -139,10 +139,10 @@ def _change_dates_in_df(df=None):
                 df['OPENED'][ind] = _datetime.datetime.\
                     strptime(f"{open_day_month} {year+1}", '%d %b %Y').\
                     strftime('%Y-%m-%d')
-        except NameError:
+        else:
             df['OPENED'][ind] = _np.nan
 
-        try:
+        if isinstance(close_day_month, str):
             close_doy = int(_datetime.datetime.
                             strptime(f"{close_day_month}", '%d %b').
                             strftime('%j'))
@@ -158,7 +158,7 @@ def _change_dates_in_df(df=None):
                 df['CLOSED'][ind] = _datetime.datetime.\
                     strptime(f"{close_day_month} {year+1}", '%d %b %Y').\
                     strftime('%Y-%m-%d')
-        except NameError:
+        else:
             df['CLOSED'][ind] = _np.nan
 
     return df.sort_values(by=['WINTER'])
