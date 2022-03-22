@@ -1,5 +1,5 @@
 import mendotapy
-import pytest
+# import pytest
 
 
 def test_load():
