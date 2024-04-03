@@ -1,6 +1,6 @@
 """
 Set up module access for the base package
 """
-from .mendotapy import load, plot
+from .mendotapy import load
 
-__all__ = ['load', 'plot']
+__all__ = ['load']

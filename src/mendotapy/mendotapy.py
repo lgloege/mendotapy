@@ -1,458 +1,280 @@
-from collections import defaultdict as _defaultdict
-from bs4 import BeautifulSoup as _BeautifulSoup
-import pandas as _pd
-import numpy as _np
-import datetime as _datetime
-import requests as _requests
-# import lxml.html as _lh
-from sklearn import linear_model as _linear_model
-import matplotlib as _matplotlib
-import matplotlib.pyplot as _plt
-# from matplotlib.ticker import AutoMinorLocator as _AutoMinorLocator
+import calendar
+from datetime import datetime
+import requests
+
+from bs4 import BeautifulSoup
+import pandas as pd
 
 
-# ----------------------------------------------------
-# These are deprecrated functions to extract the data
-# ----------------------------------------------------
-def _get_mendota_soup():
-    """**DEPRECATED** gets soup object"""
-    url = 'https://www.aos.wisc.edu/~sco/lakes/Mendota-ice.html'
-    r = _requests.get(url)
-    html = r.text
-    return _BeautifulSoup(html, "html.parser")
+def _month_to_number(month):
+    """convert string to month number otherwise 0"""
+    if isinstance(month, str):
+        month_dict = {mon.lower(): idx for idx, mon in enumerate(calendar.month_name)}
+        return month_dict.get(month.lower(), 0)
+    else:
+        return 0
 
 
-def _get_headers(soup=None):
-    """**DEPRECATED** extracts headers"""
-    return [val for val in soup.find('table').stripped_strings][0:4]
+def _extract_year(row, month_column):
+    """extracts year winter column"""
+    splits = row["Winter"].split("-")
+    season_start = splits[0]
+    season_end = splits[1]
+
+    candidate_century = season_start[0:2]
+
+    if season_end == "00":
+        century = int(candidate_century) + 1
+    else:
+        century = candidate_century
+
+    winter_with_century = f"{season_start}-{century}{season_end}"
+
+    year_range = winter_with_century.split("-")
+
+    if row[month_column] < 7:
+        return year_range[1]
+    else:
+        return year_range[0]
 
 
-def _get_data_dict(soup=None, headers=None):
-    """**DEPRECATED** gets data from dictionary"""
-    # initate a dictionary to store data
-    def_dict = _defaultdict(list)
+def __get_raw_data(url: str = None):
+    """reads raw data from URL"""
+    if url is None:
+        url = (
+            "https://climatology.nelson.wisc.edu"
+            "/first-order-station-climate-data/madison-climate"
+            "/lake-ice/history-of-ice-freezing-and-thawing-on-lake-mendota/"
+        )
 
-    for match in soup.find_all('tr'):
-        col_list = []  # will store all the colums
-        for font in match.find_all('font'):
-            tmp_list = [data for data in font.stripped_strings]
+    data = requests.get(url)
+    html_content = data.text
 
-            # puts column into temporary list based on length
-            if len(tmp_list) > 0:
-                col_list.append(tmp_list)
+    soup = BeautifulSoup(html_content, "html.parser")
+    table_id = "ice-table"
 
-        # put first half in dict
-        for enum, col in enumerate(col_list[0:4]):
-            def_dict[headers[enum]].extend(col)
+    try:
+        table = soup.find("table", {"id": table_id})
+        rows = table.find_all("tr")
 
-        # put second half in def_dict
-        for enum, col in enumerate(col_list[4:]):
-            def_dict[headers[enum]].extend(col)
+        data = []
 
-    return dict(def_dict)
+        for row in rows:
+            row_headers = row.find_all("th")
+            if row_headers:
+                headers = [col.text.strip() for col in row_headers]
+            cols = row.find_all("td")
+            cols = [col.text.strip() for col in cols]
 
+            if cols:
+                data.append(cols)
 
-def _dict_to_df(dict_=None):
-    """**DEPRECATED** converts dictionary to dataframe"""
-    return _pd.DataFrame.from_dict(dict_)
+        df = pd.DataFrame(data, columns=headers).replace("–", pd.NA)
+        return df
 
-
-# ----------------------------------------------------
-# parse url using xml
-# ----------------------------------------------------
-"""
-def _parse_url_xml():
-    # gets the data from url and extracts it
-    # read html
-    url = 'https://www.aos.wisc.edu/~sco/lakes/Mendota-ice.html'
-    r = _requests.get(url)
-
-    # Parse the html, returning a single element/document.
-    doc = _lh.fromstring(r.text)
-
-    # traverse document to rows of each table
-    targets = doc.xpath('//table//tr')
-
-    # list to store all the columns
-    entries = []
-
-    target = targets[0]
-    for target in targets:
-        # gets the columns in each table
-        subs = target.xpath('.//td')
-        # this column is empty
-        del subs[4]
-        # puts each column entry in a list
-        entries.extend([[s.strip() for s in sub.xpath('.//*/text()')]
-                       for sub in subs])
-
-    # some trailing empty elements needed to be removed before proceeding
-    entries = [[list(filter(lambda x: x != "", entry))
-                for entry in entries[r::4]] for r in range(4)]
-
-    # unpack to the correct columns
-    [Winter, Closed, Opened, Days] = [[x for list in entry for x in list]
-                                      for entry in entries]
-
-    # and now create a dataframe:
-    final = _pd.DataFrame(list(zip(Winter, Closed, Opened, Days)),
-                          columns=['WINTER', 'CLOSED', "OPENED", "DAYS"])
-
-    return final
-"""
-
-# ----------------------------------------------------
-# these functions clean the raw parsed dataset
-# ----------------------------------------------------
+    except AttributeError as e:
+        print(f"{e}")
+        print(f"Check that {table_id} is the correct table id")
 
 
-def _fill_missing_values(df=None):
-    """replace missing values with NaN"""
-    # fills in rows where lake refroze in same season
-    df['WINTER'].replace(to_replace='"', method='ffill', inplace=True)
+def __process_data(df):
+    """process data, this could be refactored"""
 
-    # use nan as the missing value
-    for headr in ['DAYS', 'OPENED', 'CLOSED']:
-        df[headr].replace(to_replace=['-', '--', '---'], value=_np.nan, inplace=True)
+    # convert Gregorian dates to numeric values
+    df[["iceon_month", "iceon_day"]] = df["Freeze-Over Date"].str.split(expand=True)
+    df["iceon_month"] = df["iceon_month"].apply(_month_to_number)
+    df["iceon_day"] = pd.to_numeric(df["iceon_day"])
+    df["iceon_month"] = pd.to_numeric(df["iceon_month"])
 
-    return df.sort_values(by=['WINTER'])
+    df[["iceoff_month", "iceoff_day"]] = df["Thaw Date"].str.split(expand=True)
+    df["iceoff_month"] = df["iceoff_month"].apply(_month_to_number)
+    df["iceoff_day"] = pd.to_numeric(df["iceoff_day"])
+    df["iceoff_month"] = pd.to_numeric(df["iceoff_month"])
 
+    # extract iceon and iceoff year
+    df["iceon_year"] = df.apply(lambda row: _extract_year(row, "iceon_month"), axis=1)
+    df["iceoff_year"] = df.apply(lambda row: _extract_year(row, "iceoff_month"), axis=1)
 
-def _change_dates_in_df(df=None):
-    """adds year to the all dates"""
-    for ind in range(len(df)):
-        open_day_month = df['OPENED'][ind]
-        close_day_month = df['CLOSED'][ind]
-        year = int(df['WINTER'][ind][0:4])
+    # additional columns consistent with NSIDC Global Lake and River Ice Phenology database
+    df["latitude"] = 43.100
+    df["longitude"] = -89.400
+    df["lakename"] = "LAKE MENDOTA"
+    df["lakecode"] = "DMR1"
+    df["froze"] = "Y"
+    df["lakeriver"] = "L"
+    df["country"] = "UNITED STATES"
 
-        if isinstance(open_day_month, str):
-            open_doy = int(_datetime.datetime.
-                           strptime(f"{open_day_month}", '%d %b').strftime('%j'))
-            # this is the lake opening before January of the next year
-            if open_doy > 200:
-                df['OPENED'][ind] = _datetime.datetime.\
-                    strptime(f"{open_day_month} {year}", '%d %b %Y').\
-                    strftime('%Y-%m-%d')
+    # rename to be consistent with NSIDC database
+    df = df.rename(columns={"Winter": "season", "Days of Ice Cover": "duration"})
 
-            # this is the lake opening the following year
-            else:
-                df['OPENED'][ind] = _datetime.datetime.\
-                    strptime(f"{open_day_month} {year+1}", '%d %b %Y').\
-                    strftime('%Y-%m-%d')
-        else:
-            df['OPENED'][ind] = _np.nan
+    df["duration"] = df["duration"].replace("", "-999")
 
-        if isinstance(close_day_month, str):
-            close_doy = int(_datetime.datetime.
-                            strptime(f"{close_day_month}", '%d %b').
-                            strftime('%j'))
+    df = df.fillna(-999).astype(
+        {
+            "season": str,
+            "iceon_year": int,
+            "iceon_month": int,
+            "iceon_day": int,
+            "iceoff_year": int,
+            "iceoff_month": int,
+            "iceoff_day": int,
+            "duration": int,
+            "latitude": float,
+            "longitude": float,
+            "lakename": str,
+            "lakecode": str,
+            "froze": str,
+            "lakeriver": str,
+            "country": str,
+        }
+    )
 
-            # this is the lake closing before January of the next year
-            if close_doy > 200:
-                df['CLOSED'][ind] = _datetime.datetime.\
-                    strptime(f"{close_day_month} {year}", '%d %b %Y').\
-                    strftime('%Y-%m-%d')
+    # replace -999 values in duration with None
+    # this needs to be done after changing the type
+    df["duration"] = df["duration"].replace(-999, None)
 
-            # his is the lake closing the following year
-            else:
-                df['CLOSED'][ind] = _datetime.datetime.\
-                    strptime(f"{close_day_month} {year+1}", '%d %b %Y').\
-                    strftime('%Y-%m-%d')
-        else:
-            df['CLOSED'][ind] = _np.nan
+    columns = [
+        "season",
+        "iceon_year",
+        "iceon_month",
+        "iceon_day",
+        "iceoff_year",
+        "iceoff_month",
+        "iceoff_day",
+        "duration",
+        "latitude",
+        "longitude",
+        "lakename",
+        "lakecode",
+    ]
 
-    return df.sort_values(by=['WINTER'])
-
-
-def _add_columns_to_dataset(df):
-    """this adds new columns to the dataset"""
-    d = _defaultdict(list)
-
-    for winter in set(df['WINTER']):
-        df_tmp = df.loc[df['WINTER'].isin([winter])]
-        d['WINTER'].extend(df_tmp['WINTER'].iloc[[0]])
-        d['CLOSED'].extend(df_tmp['CLOSED'].iloc[[0]])
-        d['OPENED'].extend(df_tmp['OPENED'].iloc[[-1]])
-        d['DAYS'].extend(df_tmp['DAYS'].iloc[[-1]])
-        d['NUM_REFREEZES'].extend([len(df_tmp)])
-        d['CLOSE_DAYS'].append(list(df_tmp['CLOSED']))
-        d['OPEN_DAYS'].append(list(df_tmp['OPENED']))
-
-    # sort the dict
-    df = _pd.DataFrame.from_dict(dict(d))
-    df = df.sort_values(by=['WINTER'])
-    df.reset_index(drop=True, inplace=True)
-
-    return df.sort_values(by=['WINTER'])
-
-
-def _rename_columns(df):
-    """sets the columns names"""
-    df = df.rename(columns={'WINTER': 'season',
-                            'CLOSED': 'iceon_date',
-                            'OPENED': 'iceoff_date',
-                            'DAYS': 'duration',
-                            'NUM_REFREEZES': 'n_freezes',
-                            'CLOSE_DAYS': 'n_iceon_dates',
-                            'OPEN_DAYS': 'n_iceoff_dates', })
+    df = df.loc[:, columns]
     return df
 
 
-def _drop_nans(df):
-    """removes rows where nan in all columns"""
-    return df.dropna().reset_index(drop=True)
-
-
-def _add_doy(df):
-    doy_on = [val+365 if val <
-              60 else val for val in _pd.to_datetime(df['iceon_date']).dt.dayofyear]
-    doy_off = [val+365 if val <
-               60 else val for val in _pd.to_datetime(df['iceoff_date']).dt.dayofyear]
-    df = df.assign(iceon_doy=doy_on, iceoff_doy=doy_off)
-    return df
-
-
-def _correct_data_type(df):
-    """corrects data types, ensure duration is an int"""
-    df['duration'] = df['duration'].astype(int)
-    return df
-
-
-# ----------------------------------------------------
-# load is where all the functions are strung together
-# ----------------------------------------------------
 def load():
-    # old way to extract url deprecated
-    soup = _get_mendota_soup()
-    headers = _get_headers(soup)
-    data_dict = _get_data_dict(soup, headers)
-    df = _dict_to_df(data_dict)
-    # df = _parse_url_xml()
-    df_cleaned = _fill_missing_values(df)
-    df_out = _change_dates_in_df(df_cleaned)
-    df_fin = _add_columns_to_dataset(df_out)
-    df_rename = _rename_columns(df_fin)
-    df_dropped = _drop_nans(df_rename)
-    df_doy = _add_doy(df_dropped)
-    df_final = _correct_data_type(df_doy)
-    return df_final
+    """load analysis-ready Lake Mendota ice phenology
+
+    Returns
+    -------
+        pandas.DataFrame: anlysis-ready ice phenology
+
+    Example
+    -------
+    import mendotapy
+    df = mendotapy.load()
+    """
+    df = __get_raw_data()
+    return __process_data(df)
 
 
-# ----------------------------------------------------
-# plotting functions
-# ----------------------------------------------------
-def plot():
-    df = load()
+@pd.api.extensions.register_dataframe_accessor("utils")
+class MendotapyAccessor:
+    def __init__(self, df):
+        self._df = df
 
-    # https://pythonguides.com/matplotlib-remove-tick-labels/
-    fig = _plt.figure(figsize=(12, 6))
-    gs = _matplotlib.gridspec.GridSpec(nrows=2, ncols=2,  width_ratios=[1, 1])
-    ax0 = fig.add_subplot(gs[:, 0])
-    ax1 = fig.add_subplot(gs[0, 1])
-    ax2 = fig.add_subplot(gs[1, 1])
+    def _ymd_to_doy(self, year: int, month: int, day: int):
+        """year month day to day of year"""
+        return datetime(year, month, day).timetuple().tm_yday
 
-    ax = ax0
+    def iceon_doy(self):
+        """ice on day of year
 
-    x = df['season'].str.split('-').str[0].astype(float)
-    y = df['duration']
+        Returns
+        -------
+            list: ice on day of year
+        """
+        doy_list = []
+        for index, row in self._df.iterrows():
+            year = row["iceon_year"]
+            month = row["iceon_month"]
+            day = row["iceon_day"]
+            try:
+                doy = self._ymd_to_doy(year=year, month=month, day=day)
+                doy_list.append(doy)
+            except ValueError:
+                doy_list.append(None)
+        return doy_list
 
-    ax.scatter(x, y,
-               marker='o',
-               s=100,
-               linewidth=3,
-               color=(1, 1, 1, 1),
-               edgecolor=[0.7, 0.7, 0.7],
-               clip_on=False,
-               zorder=2,
-               )
+    def iceon_doy_wrapped(self):
+        """ice on day of year,
+        where values greater than 365 indicate the **following** year
 
-    df2 = df.query("n_freezes == 2")
+        Returns
+        -------
+            list: ice on day of year
+        """
+        doy_list = []
+        for index, row in self._df.iterrows():
+            year = row["iceon_year"]
+            month = row["iceon_month"]
+            day = row["iceon_day"]
+            try:
+                doy = self._ymd_to_doy(year=year, month=month, day=day)
+                if doy < 182:
+                    days_in_previous_year = self._ymd_to_doy(
+                        year=year - 1, month=12, day=31
+                    )
+                    doy = doy + days_in_previous_year
+                doy_list.append(doy)
+            except ValueError:
+                doy_list.append(None)
+        return doy_list
 
-    x2 = df2['season'].str.split('-').str[0].astype(float)
-    y2 = df2['duration']
+    def iceoff_doy(self):
+        """ice off day of year,
 
-    ax.scatter(x2, y2,
-               marker='o',
-               s=100,
-               linewidth=3,
-               color=(1, 1, 1, 1),
-               edgecolor=[0.1, 0.1, 0.1],
-               clip_on=False,
-               zorder=2,
-               )
+        Returns
+        -------
+            list: ice off day of year
+        """
+        doy_list = []
+        for index, row in self._df.iterrows():
+            year = row["iceoff_year"]
+            month = row["iceoff_month"]
+            day = row["iceoff_day"]
+            try:
+                doy = self._ymd_to_doy(year=year, month=month, day=day)
+                doy_list.append(doy)
+            except ValueError:
+                doy_list.append(None)
+        return doy_list
 
-    # linear regression
-    regr_out = _linear_model.LinearRegression()
-    regr_out.fit(x.values.reshape(-1, 1), y.values.reshape(-1, 1))
+    def iceoff_doy_wrapped(self):
+        """ice off day of year,
+        where values less than 0 indicate the **previous** year
 
-    # plot trend line
-    ax.plot(x, regr_out.predict(x.values.reshape(-1, 1)), color='k', linewidth=3)
+        Returns
+        -------
+            list: ice off day of year
+        """
+        doy_list = []
+        for index, row in self._df.iterrows():
+            year = row["iceoff_year"]
+            month = row["iceoff_month"]
+            day = row["iceoff_day"]
+            try:
+                doy = self._ymd_to_doy(year=year, month=month, day=day)
+                if doy > 182:
+                    days_in_previous_year = self._ymd_to_doy(
+                        year=year, month=12, day=31
+                    )
+                    doy = doy - days_in_previous_year
+                doy_list.append(doy)
+            except ValueError:
+                doy_list.append(None)
+        return doy_list
 
-    # Hide the right and top spines
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
+    def season_start(self):
+        """start of the season
 
-    # set axis limits
-    ax.set_ylim([0, 170])
-    ax.set_xlim([1855, 2022])
-
-    # tick marks
-    ax.set_xticks(_np.arange(1860, 2021, 40))
-    ax.set_yticks(_np.arange(14, 180, 14))
-
-    # major/minor tick lines
-    ax.grid(axis='y', which='major', color=[0.8, 0.8, 0.8], linestyle='-')
-
-    # Labels
-    ax.tick_params(axis='x', labelsize=16)
-    ax.tick_params(axis='y', labelsize=16)
-
-    # Turn off the display of all ticks.
-    ax.tick_params(axis='both',
-                   which='major',  # Options for both major and minor ticks
-                   top='off',  # turn off top ticks
-                   left='off',  # turn off left ticks
-                   right='off',  # turn off right ticks
-                   bottom='off',  # turn off bottom ticks
-                   length=0,
-                   )
-
-    # Annotations
-    title_str = """Duration of Ice Cover (Days)"""
-    ax.set_title(title_str, fontsize=18, fontweight='bold', ha='center')
-
-    ax = ax1
-
-    x = df['season'].str.split('-').str[0].astype(float)
-    y = df['duration']
-
-    ax.plot(df['season'].str.split('-').str[0].astype(float),
-            df['iceon_doy'], color='k', linewidth=2)
-
-    ax.plot(df['season'].str.split('-').str[0].astype(float),
-            df['iceoff_doy']+365, color=[0.5, 0.5, 0.5], linewidth=2)
-
-    # Range ov axes
-    ax.set_ylim([420, 492])
-    ax.set_xlim([1855, 2022])
-
-    yticks_start_end_step = (420+7, 500, 14)
-    xticks_start_end_step = (1860, 2021, 40)
-
-    # Turn off the display of all ticks.
-    ax.tick_params(which='both',  # Options for both major and minor ticks
-                   top='off',  # turn off top ticks
-                   left='off',  # turn off left ticks
-                   right='off',  # turn off right ticks
-                   bottom='off')  # turn off bottom ticks
-
-    # Remove x tick marks
-    _plt.setp(ax.get_xticklabels(), rotation=0)
-
-    # Hide the right and top spines
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-
-    # major/minor tick lines
-    ax.grid(axis='y', which='major', color=[0.8, 0.8, 0.8], linestyle='-')
-
-    # Turn off the display of all ticks.
-    ax.tick_params(axis='both',
-                   which='major',  # Options for both major and minor ticks
-                   top='off',  # turn off top ticks
-                   left='off',  # turn off left ticks
-                   right='off',  # turn off right ticks
-                   bottom='off',  # turn off bottom ticks
-                   length=0,
-                   )
-
-    # Only show ticks on the left and bottom spines
-    ax.yaxis.set_ticks_position('left')
-    ax.xaxis.set_ticks_position('bottom')
-
-    # Don't allow the axis to be on top of your data
-    ax.set_axisbelow(True)
-    ax.set_xticks(_np.arange(*xticks_start_end_step))
-    ax.set_yticks(_np.arange(*yticks_start_end_step))
-
-    ax.set_yticklabels([_datetime.datetime.fromordinal(doy).strftime('%b-%d')
-                        for doy in range(*yticks_start_end_step)])
-
-    # Labels
-    ax.tick_params(axis='x', labelsize=16)
-    ax.tick_params(axis='y', labelsize=16, labelleft=False, labelright=True)
-
-    ax.xaxis.set_ticklabels([])
-
-    # Annotations
-    title_str = """Ice-off date"""
-    ax.set_title(title_str, fontsize=18, fontweight='bold', ha='center')
-
-    ax = ax2
-
-    x = df['season'].str.split('-').str[0].astype(float)
-    y = df['duration']
-
-    ax.plot(df['season'].str.split('-').str[0].astype(float),
-            df['iceon_doy'], color='k', linewidth=2)
-
-    # Range ov axes
-    ax.set_ylim([322, 400])
-    ax.set_xlim([1855, 2022])
-
-    yticks_start_end_step = (323+7, 400, 14)
-    xticks_start_end_step = (1860, 2021, 40)
-
-    # Turn off the display of all ticks.
-    ax.tick_params(which='both',  # Options for both major and minor ticks
-                   top='off',  # turn off top ticks
-                   left='off',  # turn off left ticks
-                   right='off',  # turn off right ticks
-                   bottom='off')  # turn off bottom ticks
-
-    # Remove x tick marks
-    _plt.setp(ax.get_xticklabels(), rotation=0)
-
-    # Hide the right and top spines
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['bottom'].set_visible(False)
-
-    # major/minor tick lines
-    ax.grid(axis='y', which='major', color=[0.8, 0.8, 0.8], linestyle='-')
-
-    # Turn off the display of all ticks.
-    ax.tick_params(axis='both',
-                   which='major',  # Options for both major and minor ticks
-                   top='off',  # turn off top ticks
-                   left='off',  # turn off left ticks
-                   right='off',  # turn off right ticks
-                   bottom='off',  # turn off bottom ticks
-                   length=0,
-                   )
-
-    # Only show ticks on the left and bottom spines
-    ax.yaxis.set_ticks_position('left')
-    ax.xaxis.set_ticks_position('bottom')
-
-    # Don't allow the axis to be on top of your data
-    ax.set_axisbelow(True)
-
-    ax.set_xticks(_np.arange(*xticks_start_end_step))
-    ax.set_yticks(_np.arange(*yticks_start_end_step))
-
-    ax.set_yticklabels([_datetime.datetime.fromordinal(doy).strftime('%b-%d')
-                        for doy in range(*yticks_start_end_step)])
-
-    # Labels
-    ax.tick_params(axis='x', labelsize=16)
-    ax.tick_params(axis='y', labelsize=16, labelleft=False, labelright=True)
-
-    # Annotations
-    title_str = """Ice-on date"""
-    ax.set_title(title_str, fontsize=18, fontweight='bold', ha='center')
+        Returns
+        -------
+            list: start of the season.
+                  e.g., the 2023-2024 winter season return 2023
+        """
+        season_list = []
+        for index, row in self._df.iterrows():
+            season = int(row["season"].split("-")[0])
+            season_list.append(season)
+        return season_list
