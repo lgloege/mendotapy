@@ -1,13 +1,13 @@
 # mendotapy
 
-A Python 3.6+ package for analysis-ready [Lake Mendota ice phenology](https://www.aos.wisc.edu/~sco/lakes/Mendota-ice.html) data
+A Python 3.6+ package for analysis-ready [Lake Mendota ice phenology](https://climatology.nelson.wisc.edu/first-order-station-climate-data/madison-climate/lake-ice/history-of-ice-freezing-and-thawing-on-lake-mendota/) data
 
 Installing
 ----------
 
 ### PyPi
 ```sh
-pip install mendotapy==0.1.0
+pip install mendotapy==1.0.0
 ```
 
 ### GitHub
@@ -21,10 +21,4 @@ Using the Package
 ```python
 import mendotapy
 df = mendotapy.load()
-```
-
-**Summary plot of the data**
-```python
-import mendotapy
-mendotapy.plot()
 ```
