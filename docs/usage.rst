@@ -4,107 +4,47 @@ Quickstart Guide
 Installation
 ----------------------------------------------------
 
-Install `openclimate` using `pip`.
+Install `mendotapy` using `pip`.
 
 .. code-block:: bash
 
    # for latest release
-   pip install openclimate
+   pip install mendotapy
 
    # for bleeding-edge up-to-date commit
-   pip install -e git+https://github.com/Open-Earth-Foundation/OpenClimate-pyclient.git
+   pip install -e git+https://github.com/lgloege/mendotapy.git
 
-Once installed, import the package and create a `Client()` object.
+Once installed, use the `load()` function to load the data as a pandas dataframe.
 
 .. code-block:: python
 
-    from openclimate import Client
-    client = Client()
+    import mendotapy
+    df = mendotapy.load()
 
-    # if using jupyter or iPython
-    client.jupyter
+Now you can analyze the data using standard pandas methods.
 
-.. note::
-    You need to run `client.jupyter` for the client package
-    to work properly in Jupyter or iPython.
-
-
-Emissions
+Built in utilities
 ----------------------------------------------------
-Retrieve all emissions data for a single actor. Here I am retrieving emissions data for Canada
+Once the data is loaded as dataframe, you can use some builtin ultities provided by `mendotapy`.
+These will calculate the day of the year (DOY) and extract the start of the season for you.
 
 .. code-block:: python
 
-    df = client.emissions(actor_id='CA')
+    list_of_iceondoy = df.utils.iceon_doy()
+    list_of_iceoffdoy = df.utils.iceoff_doy()
 
 
-
-Retrieve all emissions data for a list of actors. Here I am retrieving emission data for the United States, Canada, and Great Britain.
-
-.. code-block:: python
-
-        df = client.emissions(actor_id=['US','CA','GB'])
-
-
-Return the different datasets available for a particular actor:
+Sometimes it is conventient to have the DOY wrap around the next the next or previous year.
+For instance, DOYs greater than 365 correspond to the next year and negative values correspond to the previous year.
+This can be useful when plotting trends in the ice-on or ice-off year.
 
 .. code-block:: python
 
-    df = client.emissions_datasets(actor_id='US')
+    list_of_iceondoy = df.utils.iceon_doy_wrapped()
+    list_of_iceoffdoy = df.utils.iceoff_doy_wrapped()
 
-
-Only select data for a particular dataset
-
-.. code-block:: python
-
-    df = client.emissions_datasets(actor_id='US', datasource_id='GCB2022:national_fossil_emissions:v1.0')
-
-
-Targets
-----------------------------------------------------
-Retrieve emissions targets for a particule actor
+Finally, when plotting you may want the start of the season the x-axis. Use the `season_start()` method.
 
 .. code-block:: python
 
-    df = client.targets(actor_id='US')
-
-
-Population
-----------------------------------------------------
-Retrieve population data.
-
-.. code-block:: python
-
-    df = client.population(actor_id=['US','CA','GB'])
-
-
-GDP
-----------------------------------------------------
-Retrieve GDP data.
-
-.. code-block:: python
-
-    df = client.gdp(actor_id=['US','CA','GB'])
-
-
-Searching for codes
-----------------------------------------------------
-use the following to list the actor_ids for countries:
-
-.. code-block:: python
-
-    df = client.country_codes()
-
-
-search for actor codes:
-
-.. code-block:: python
-
-    df = client.search(query='Minnesota')
-
-
-get all the parts of an actor. Here I am returning the actor_id for each US state.
-
-.. code-block:: python
-
-    df =client.parts(actor_id='US',part_type='adm1')
+    season_start = df.utils.season_start()
