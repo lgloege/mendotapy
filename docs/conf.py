@@ -12,7 +12,6 @@
 import os
 import pathlib
 import sys
-from pkg_resources import get_distribution
 sys.path.insert(0, os.path.abspath('../src'))
 
 root = pathlib.Path(__file__).parent.parent.absolute()
