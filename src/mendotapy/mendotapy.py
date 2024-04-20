@@ -1,6 +1,7 @@
 import calendar
 from datetime import datetime
 import requests
+from typing import Optional
 
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -38,7 +39,7 @@ def _extract_year(row, month_column):
         return year_range[0]
 
 
-def __get_raw_data(url: str = None):
+def __get_raw_data(url: Optional[str] = None):
     """reads raw data from URL"""
     if url is None:
         url = (
@@ -57,7 +58,7 @@ def __get_raw_data(url: str = None):
         table = soup.find("table", {"id": table_id})
         rows = table.find_all("tr")
 
-        data = []
+        data_list = []
 
         for row in rows:
             row_headers = row.find_all("th")
@@ -67,9 +68,9 @@ def __get_raw_data(url: str = None):
             cols = [col.text.strip() for col in cols]
 
             if cols:
-                data.append(cols)
+                data_list.append(cols)
 
-        df = pd.DataFrame(data, columns=headers).replace("–", pd.NA)
+        df = pd.DataFrame(data_list, columns=headers).replace("–", pd.NA)
         return df
 
     except AttributeError as e:
