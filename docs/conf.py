@@ -62,11 +62,11 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', "**.ipynb_checkpoints"]
 html_theme_options = {
     "logo_only": True,
     "display_version": False,
-    "style_nav_header_background": "#232640",
+    "style_nav_header_background": "#2A6886",
 }
 
 # make file (relative to this directory) to place at the top of the sidebar.
-html_logo = ""
+html_logo = "img/mendotapy-logo.png"
 html_theme = "sphinx_rtd_theme"
 html_static_path = ['_static']
 html_css_files = [
